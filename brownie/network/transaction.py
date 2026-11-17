@@ -709,7 +709,7 @@ class TransactionReceipt:
                     try:
                         self._revert_msg = decode_abi(["string"], data[4:])[0]
                     except Exception:
-                        # print this one as bytes instead of hex because it probably has a string in it
+                        # Print bytes so the message can include readable text.
                         self._revert_msg = f"unparsed string error: {data[4:]}"
                 else:
                     # TODO: actually parse the data
