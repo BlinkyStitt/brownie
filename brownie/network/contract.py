@@ -1160,7 +1160,8 @@ class Contract(_DeployedContractBase):
                 is_compilable = False
         else:
             try:
-                version = Version(compiler_str.lstrip("v")).truncate()
+                parsed = Version(compiler_str.lstrip("v"))
+                version = Version(major=parsed.major, minor=parsed.minor, patch=parsed.patch)
                 is_compilable = (
                     version >= Version("0.4.22")
                     and version
