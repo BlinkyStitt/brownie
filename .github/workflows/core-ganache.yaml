@@ -19,13 +19,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-24.04]
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
 
     - name: Cache Solidity Installations
-      uses: actions/cache@v2
+      uses: actions/cache@v4
       with:
         path: |
           ~/.solcx
@@ -33,13 +33,15 @@ jobs:
         key: ${{ runner.os }}-compiler-cache
 
     - name: Setup Node.js
-      uses: actions/setup-node@v1
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
 
     - name: Install Ganache
       run: npm install -g ganache-cli@6.12.2
 
     - name: Setup Python 3.8
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v5
       with:
         python-version: 3.8
 
@@ -50,18 +52,18 @@ jobs:
       run: tox -e py38
 
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v1
+      uses: codecov/codecov-action@v5
       with:
-        file: ./coverage.xml
+        files: ./coverage.xml
 
   py37core:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
 
     - name: Cache Solidity Installations
-      uses: actions/cache@v2
+      uses: actions/cache@v4
       with:
         path: |
           ~/.solcx
@@ -69,13 +71,15 @@ jobs:
         key: ${{ runner.os }}-compiler-cache
 
     - name: Setup Node.js
-      uses: actions/setup-node@v1
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
 
     - name: Install Ganache
       run: npm install -g ganache-cli@6.12.2
 
     - name: Setup Python 3.7
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v5
       with:
         python-version: 3.7
 
@@ -86,18 +90,20 @@ jobs:
       run: tox -e py37
 
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v1
+      uses: codecov/codecov-action@v5
       with:
-        file: ./coverage.xml
+        files: ./coverage.xml
 
   py36core:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    # GitHub no longer offers Python 3.6 on its Linux runner images.
+    container: python:3.6.15-buster@sha256:08c787fde0ef9fac8d9244e0d49939ce3dfca27198fac37ac2748c2d3c8fc987
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
 
     - name: Cache Solidity Installations
-      uses: actions/cache@v2
+      uses: actions/cache@v4
       with:
         path: |
           ~/.solcx
@@ -105,15 +111,12 @@ jobs:
         key: ${{ runner.os }}-compiler-cache
 
     - name: Setup Node.js
-      uses: actions/setup-node@v1
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
 
     - name: Install Ganache
       run: npm install -g ganache-cli@6.12.2
-
-    - name: Setup Python 3.6
-      uses: actions/setup-python@v2
-      with:
-        python-version: 3.6
 
     - name: Install Tox
       run: pip install tox
@@ -122,6 +125,6 @@ jobs:
       run: tox -e py36
 
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v1
+      uses: codecov/codecov-action@v5
       with:
-        file: ./coverage.xml
+        files: ./coverage.xml
