@@ -17,6 +17,9 @@ from brownie.project.compiler.utils import _get_alias, expand_source_map
 
 from . import sources
 
+# py-solc-x 1.x still points to the retired solc-bin.ethereum.org host.
+solcx.install.BINARY_DOWNLOAD_BASE = "https://binaries.soliditylang.org/{}-amd64/{}"
+
 solcx_logger = logging.getLogger("solcx")
 solcx_logger.setLevel(10)
 sh = logging.StreamHandler()
