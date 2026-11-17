@@ -7,6 +7,10 @@ env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   WEB3_INFURA_PROJECT_ID: 44c6300c5e5b4b2da5fc42b06bf18a8e
 
+concurrency:
+  group: pr-ci-evm.yaml-${{ github.event_name }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name != github.event.repository.default_branch && github.ref) || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
 
   evm:
