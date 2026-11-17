@@ -41,8 +41,8 @@ SOLIDITY_ERROR_CODES = {
 }
 
 
-def get_version() -> Version:
-    return solcx.get_solc_version(with_commit_hash=True)
+def get_version(with_commit_hash: bool = True) -> Version:
+    return solcx.get_solc_version(with_commit_hash=with_commit_hash)
 
 
 def compile_from_input_json(

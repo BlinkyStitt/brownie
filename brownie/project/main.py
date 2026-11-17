@@ -664,7 +664,7 @@ def compile_source(
     if vyper_version is None:
         # if no vyper compiler version is given, try to compile using solidity
         compiler_config["solc"] = {
-            "version": solc_version or str(compiler.solidity.get_version().truncate()),
+            "version": solc_version or str(compiler.solidity.get_version(with_commit_hash=False)),
             "optimize": optimize,
             "runs": runs,
         }
