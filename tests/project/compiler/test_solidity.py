@@ -181,6 +181,18 @@ def test_first_revert(BrownieTester, ExternalCallTester):
     assert not next((i for i in pc_map.values() if "first_revert" in i), False)
 
 
+@pytest.mark.parametrize("opcode", ["REVERT", "INVALID"])
+def test_unmapped_error_cannot_reuse_another_contracts_message(newproject, monkeypatch, opcode):
+    pc = 1_000_000
+    cached = ("other.sol", (0, 1), "Other.foo", "dev: unrelated", None)
+    monkeypatch.setitem(build._revert_map, pc, cached)
+    assert build._get_dev_revert(pc) == "dev: unrelated"
+
+    newproject._build._generate_revert_map({pc: {"op": opcode}}, {}, "Solidity")
+
+    assert build._get_dev_revert(pc) is None
+
+
 def test_compile_empty():
     compiler.compile_and_format({"empty.sol": ""}, solc_version="0.4.25")
 

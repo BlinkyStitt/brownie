@@ -75,6 +75,8 @@ class Build:
             if v["op"] in ("REVERT", "INVALID") or "jump_revert" in v
         ):
             if "path" not in data:
+                # An unmapped instruction cannot share another contract's cached location.
+                _revert_map[pc] = False
                 continue
             path_str = source_map[data["path"]]
 
