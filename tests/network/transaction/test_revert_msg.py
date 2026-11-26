@@ -38,6 +38,17 @@ REVERT_FUNCTIONS_INPUT = [
 ]
 
 
+def _compile_for_evm(source, evmtester):
+    settings = evmtester._build["compiler"]
+    return compile_source(
+        source,
+        solc_version=settings["version"].split("+")[0],
+        evm_version=settings["evm_version"],
+        optimize=settings["optimizer"]["enabled"],
+        runs=settings["optimizer"]["runs"],
+    )
+
+
 @pytest.mark.parametrize("expr", ["revert()", "require(false)"])
 @pytest.mark.parametrize("func", REVERT_FUNCTIONS_NO_INPUT)
 def test_final_stmt_revert_no_input_no_msg(console_mode, evmtester, accounts, expr, func):
@@ -50,7 +61,7 @@ contract Foo {{
 }}
     """
 
-    contract = compile_source(code).Foo.deploy({"from": accounts[0]})
+    contract = _compile_for_evm(code, evmtester).Foo.deploy({"from": accounts[0]})
     tx = contract.foo()
     assert tx.revert_msg == "dev: yuss"
     assert tx.dev_revert_msg == "dev: yuss"
@@ -68,7 +79,7 @@ contract Foo {{
 }}
     """
 
-    contract = compile_source(code).Foo.deploy({"from": accounts[0]})
+    contract = _compile_for_evm(code, evmtester).Foo.deploy({"from": accounts[0]})
     tx = contract.foo()
     assert tx.revert_msg == "foo"
     assert tx.dev_revert_msg == "dev: yuss"
@@ -86,7 +97,7 @@ contract Foo {{
 }}
     """
 
-    contract = compile_source(code).Foo.deploy({"from": accounts[0]})
+    contract = _compile_for_evm(code, evmtester).Foo.deploy({"from": accounts[0]})
     tx = contract.foo(4)
     assert tx.revert_msg == "dev: yuss"
 
@@ -103,7 +114,7 @@ contract Foo {{
 }}
     """
 
-    contract = compile_source(code).Foo.deploy({"from": accounts[0]})
+    contract = _compile_for_evm(code, evmtester).Foo.deploy({"from": accounts[0]})
     tx = contract.foo(4)
     assert tx.revert_msg == "foo"
     assert tx.dev_revert_msg == "dev: yuss"

@@ -251,10 +251,10 @@ def test_contractabi(ExternalCallTester, accounts, tester, ext_tester):
     tx.call_trace()
 
 
-def test_traces_not_supported(network, chain):
-    network.connect("ropsten")
+def test_traces_not_supported(network, chain, rpc_networks):
+    network.connect("fixture")
 
-    tx = chain.get_transaction("0xfd9f98a245d3cff68dd67546fa7e89009a291101f045f81eb9afd14abcbdc6aa")
+    tx = chain.get_transaction("0x609cf552af7829d6425faf2b17285a2af3f0ee8d5823c4cfd79a7b2151ab93b6")
 
     # the confirmation output should work even without traces
     tx._confirm_output()

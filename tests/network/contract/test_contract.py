@@ -2,8 +2,10 @@
 from copy import deepcopy
 
 import pytest
-import requests
+from semantic_version import Version
+from vvm.utils.convert import to_vyper_version
 
+import brownie.network.contract
 from brownie import Wei
 from brownie.exceptions import BrownieCompilerWarning, BrownieEnvironmentWarning, ContractNotFound
 from brownie.network.contract import (
@@ -13,6 +15,70 @@ from brownie.network.contract import (
     ProjectContract,
     _DeployedContractBase,
 )
+
+EXPLORER_ABI = [
+    {
+        "constant": True,
+        "inputs": [],
+        "name": "value",
+        "outputs": [{"name": "", "type": "uint256"}],
+        "payable": False,
+        "stateMutability": "pure",
+        "type": "function",
+    }
+]
+
+EXPLORER_SOURCE = """
+pragma solidity ^0.5.0;
+
+contract HermeticExplorer {
+    function value() external pure returns (uint256) {
+        return 31337;
+    }
+}
+"""
+
+PRE_422_SOURCE = """
+pragma solidity ^0.4.18;
+
+contract DSToken {
+    function value() public pure returns (uint256) {
+        return 31337;
+    }
+}
+"""
+
+PROXY_SOURCE = """
+pragma solidity ^0.4.18;
+
+contract ProxyContract {
+}
+"""
+
+
+def _mock_solc_versions(monkeypatch, *versions):
+    monkeypatch.setattr(brownie.project.compiler.solidity, "AVAILABLE_SOLC_VERSIONS", None)
+    monkeypatch.setattr(
+        brownie.network.contract.solcx,
+        "get_installable_solc_versions",
+        lambda: [Version(str(version)) for version in versions],
+    )
+
+
+def _mock_vyper_versions(monkeypatch, *versions):
+    monkeypatch.setattr(
+        brownie.network.contract,
+        "get_installable_vyper_versions",
+        lambda: [to_vyper_version(str(version)) for version in versions],
+    )
+
+
+def _mock_verified_code(monkeypatch):
+    monkeypatch.setattr(
+        brownie.network.contract,
+        "_verify_deployed_code",
+        lambda _address, _expected_bytecode, _language: True,
+    )
 
 
 @pytest.fixture
@@ -90,18 +156,18 @@ def test_contractabi_replace_contract(testproject, tester):
     Contract.from_abi("BrownieTester", tester.address, tester.abi)
 
 
-def test_contract_from_ethpm(ipfs_mock, network):
+def test_contract_from_ethpm(ipfs_mock, network, rpc_networks):
     network.connect("ropsten")
     Contract.from_ethpm("ComplexNothing", manifest_uri="ipfs://testipfs-complex")
 
 
-def test_contract_from_ethpm_multiple_deployments(ipfs_mock, network):
+def test_contract_from_ethpm_multiple_deployments(ipfs_mock, network, rpc_networks):
     network.connect("mainnet")
     with pytest.raises(ValueError):
         Contract.from_ethpm("ComplexNothing", manifest_uri="ipfs://testipfs-complex")
 
 
-def test_contract_from_ethpm_no_deployments(ipfs_mock, network):
+def test_contract_from_ethpm_no_deployments(ipfs_mock, network, rpc_networks):
     network.connect("kovan")
     with pytest.raises(ContractNotFound):
         Contract.from_ethpm("ComplexNothing", manifest_uri="ipfs://testipfs-complex")
@@ -114,7 +180,7 @@ def test_deprecated_init_abi(tester):
     assert old == Contract.from_abi("BrownieTester", tester.address, tester.abi)
 
 
-def test_deprecated_init_ethpm(ipfs_mock, network):
+def test_deprecated_init_ethpm(ipfs_mock, network, rpc_networks):
     network.connect("ropsten")
 
     with pytest.warns(DeprecationWarning):
@@ -123,74 +189,116 @@ def test_deprecated_init_ethpm(ipfs_mock, network):
     assert old == Contract.from_ethpm("ComplexNothing", manifest_uri="ipfs://testipfs-complex")
 
 
-def test_from_explorer(network):
-    network.connect("mainnet")
-    contract = Contract.from_explorer("0x973e52691176d36453868d9d86572788d27041a9")
+def test_from_explorer(mock_explorer, monkeypatch):
+    _mock_solc_versions(monkeypatch, "0.5.17")
+    _mock_verified_code(monkeypatch)
+    address = mock_explorer.add_source(
+        "0x0000000000000000000000000000000000000101",
+        name="HermeticExplorer",
+        abi=EXPLORER_ABI,
+        source=EXPLORER_SOURCE,
+        compiler_version="v0.5.17",
+    )
 
-    assert contract._name == "DxToken"
+    contract = Contract.from_explorer(address)
+
+    assert contract._name == "HermeticExplorer"
     assert "pcMap" in contract._build
     assert len(contract._sources) == 1
+    assert mock_explorer.actions(address) == ["getsourcecode"]
 
 
-@pytest.mark.xfail
-def test_from_explorer_only_abi(network):
-    network.connect("mainnet")
-    # uniswap DAI market - ABI is available but source is not
+def test_from_explorer_only_abi(mock_explorer):
+    address = mock_explorer.add_abi_only(
+        "0x0000000000000000000000000000000000000102", abi=EXPLORER_ABI
+    )
+
     with pytest.warns(BrownieCompilerWarning):
-        contract = Contract.from_explorer("0x2a1530C4C41db0B0b2bB646CB5Eb1A67b7158667")
+        contract = Contract.from_explorer(address)
 
     assert contract._name == "UnknownContractName"
     assert "pcMap" not in contract._build
+    assert mock_explorer.actions(address) == ["getsourcecode", "getabi"]
 
 
-def test_from_explorer_pre_422(network):
-    network.connect("mainnet")
+def test_from_explorer_pre_422(mock_explorer, monkeypatch):
+    _mock_solc_versions(monkeypatch, "0.4.18")
+    address = mock_explorer.add_source(
+        "0x0000000000000000000000000000000000000103",
+        name="DSToken",
+        abi=EXPLORER_ABI,
+        source=PRE_422_SOURCE,
+        compiler_version="v0.4.18",
+    )
 
-    # MKR, compiler version 0.4.18
     with pytest.warns(BrownieCompilerWarning):
-        contract = Contract.from_explorer("0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2")
+        contract = Contract.from_explorer(address)
+
     assert contract._name == "DSToken"
     assert "pcMap" not in contract._build
 
 
-def test_from_explorer_vyper_supported_020(network):
-    network.connect("mainnet")
-
-    # curve yCRV gauge - `0.2.4`
-    contract = Contract.from_explorer("0xFA712EE4788C042e2B7BB55E6cb8ec569C4530c1")
-
+def test_from_explorer_vyper_supported_020(mock_explorer, monkeypatch):
+    _mock_vyper_versions(monkeypatch, "0.2.4")
+    _mock_verified_code(monkeypatch)
+    address = mock_explorer.add_source(
+        "0x0000000000000000000000000000000000000104",
+        name="Vyper_contract",
+        abi=EXPLORER_ABI,
+        source="@external\n@view\ndef value() -> uint256:\n    return 31337\n",
+        compiler_version="vyper:0.2.4",
+        optimization_used="0",
+    )
+    contract = Contract.from_explorer(address)
     assert contract._name == "Vyper_contract"
     assert "pcMap" in contract._build
 
 
-def test_from_explorer_vyper_supported_010(network):
-    network.connect("mainnet")
-
-    # curve cDAI/cUSDC - `0.1.0-beta.16`
-    contract = Contract.from_explorer("0x845838DF265Dcd2c412A1Dc9e959c7d08537f8a2")
-
+def test_from_explorer_vyper_supported_010(mock_explorer, monkeypatch):
+    _mock_vyper_versions(monkeypatch, "0.1.0-beta.16")
+    _mock_verified_code(monkeypatch)
+    address = mock_explorer.add_source(
+        "0x0000000000000000000000000000000000000114",
+        name="Vyper_contract",
+        abi=EXPLORER_ABI,
+        source="@public\n@constant\ndef value() -> uint256:\n    return 31337\n",
+        compiler_version="vyper:0.1.0-beta.16",
+        optimization_used="0",
+    )
+    contract = Contract.from_explorer(address)
     assert contract._name == "Vyper_contract"
     assert "pcMap" in contract._build
 
 
-def test_from_explorer_vyper_old_version(network):
-    network.connect("mainnet")
+def test_from_explorer_vyper_old_version(mock_explorer, monkeypatch):
+    _mock_vyper_versions(monkeypatch, "0.2.4")
+    address = mock_explorer.add_source(
+        "0x0000000000000000000000000000000000000105",
+        name="Vyper_contract",
+        abi=EXPLORER_ABI,
+        source="@public\n@constant\ndef value() -> uint256:\n    return 31337\n",
+        compiler_version="vyper:0.1.0-beta.4",
+        optimization_used="0",
+    )
+
     with pytest.warns(BrownieCompilerWarning):
-        # uniswap v1 - `0.1.0-beta.4`
-        contract = Contract.from_explorer("0x2157a7894439191e520825fe9399ab8655e0f708")
+        contract = Contract.from_explorer(address)
 
     assert contract._name == "Vyper_contract"
     assert "pcMap" not in contract._build
 
 
-def test_from_explorer_unverified(network):
-    network.connect("mainnet")
+def test_from_explorer_unverified(mock_explorer):
+    address = mock_explorer.add_unverified("0x0000000000000000000000000000000000000106")
+
     with pytest.raises(ValueError):
-        Contract.from_explorer("0x0000000000000000000000000000000000000000")
+        Contract.from_explorer(address)
+
+    assert mock_explorer.actions(address) == ["getsourcecode", "getabi"]
 
 
 @pytest.mark.xfail
-def test_from_explorer_etc(network):
+def test_from_explorer_etc(network, rpc_networks):
     network.connect("etc")
     with pytest.warns(BrownieCompilerWarning):
         contract = Contract.from_explorer("0x085b0fdf115aa9e16ae1bddd396ce1f993c52220")
@@ -198,17 +306,25 @@ def test_from_explorer_etc(network):
     assert contract._name == "ONEX"
 
 
-def test_retrieve_existing(network):
-    network.connect("mainnet")
-    with pytest.warns(BrownieCompilerWarning):
-        new = Contract.from_explorer("0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2")
+def test_retrieve_existing(mock_explorer, monkeypatch):
+    _mock_solc_versions(monkeypatch, "0.4.18")
+    address = mock_explorer.add_source(
+        "0x0000000000000000000000000000000000000107",
+        name="DSToken",
+        abi=EXPLORER_ABI,
+        source=PRE_422_SOURCE,
+        compiler_version="v0.4.18",
+    )
 
-    existing = Contract("0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2")
+    with pytest.warns(BrownieCompilerWarning):
+        new = Contract.from_explorer(address)
+
+    existing = Contract(address)
     assert new == existing
 
 
 @pytest.mark.xfail(reason="Infura rate limiting - the test suite needs a refactor", strict=False)
-def test_existing_different_chains(network):
+def test_existing_different_chains(network, rpc_networks):
     network.connect("mainnet")
     with pytest.warns(BrownieCompilerWarning):
         Contract.from_explorer("0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2")
@@ -219,10 +335,18 @@ def test_existing_different_chains(network):
         Contract("0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2")
 
 
-def test_alias(network):
-    network.connect("mainnet")
+def test_alias(mock_explorer, monkeypatch):
+    _mock_solc_versions(monkeypatch, "0.4.18")
+    address = mock_explorer.add_source(
+        "0x0000000000000000000000000000000000000108",
+        name="DSToken",
+        abi=EXPLORER_ABI,
+        source=PRE_422_SOURCE,
+        compiler_version="v0.4.18",
+    )
+
     with pytest.warns(BrownieCompilerWarning):
-        contract = Contract.from_explorer("0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2")
+        contract = Contract.from_explorer(address)
 
     contract.set_alias("testalias")
 
@@ -236,19 +360,23 @@ def test_alias(network):
         Contract("testalias")
 
 
-def test_alias_not_exists(network):
-    network.connect("mainnet")
-
+def test_alias_not_exists(mock_explorer):
     with pytest.raises(ValueError):
         Contract("doesnotexist")
 
 
-def test_duplicate_alias(network):
-    network.connect("mainnet")
+def test_duplicate_alias(mock_explorer):
+    foo_address = mock_explorer.add_abi_only(
+        "0x0000000000000000000000000000000000000109", abi=EXPLORER_ABI
+    )
+    bar_address = mock_explorer.add_abi_only(
+        "0x0000000000000000000000000000000000000110", abi=EXPLORER_ABI
+    )
 
-    foo = Contract.from_explorer("0x2af5d2ad76741191d15dfe7bf6ac92d4bd912ca3")
     with pytest.warns(BrownieCompilerWarning):
-        bar = Contract.from_explorer("0x2157a7894439191e520825fe9399ab8655e0f708")
+        foo = Contract.from_explorer(foo_address)
+    with pytest.warns(BrownieCompilerWarning):
+        bar = Contract.from_explorer(bar_address)
 
     foo.set_alias("foo")
     with pytest.raises(ValueError):
@@ -266,46 +394,67 @@ def test_alias_in_development(tester):
         contract.set_alias("testalias")
 
 
-def test_autofetch(network, config):
-    network.connect("mainnet")
+def test_autofetch(config, mock_explorer):
+    address = mock_explorer.add_abi_only(
+        "0x0000000000000000000000000000000000000111", abi=EXPLORER_ABI
+    )
+
     with pytest.raises(ValueError):
-        Contract("0xdAC17F958D2ee523a2206206994597C13D831ec7")
+        Contract(address)
 
     config.settings["autofetch_sources"] = True
-    Contract("0xdAC17F958D2ee523a2206206994597C13D831ec7")
+    Contract(address)
+    assert mock_explorer.actions(address) == ["getsourcecode", "getabi"]
 
 
-def test_autofetch_missing(network, config, mocker):
-    # an issue woth pytest-mock prevents spying on Contract.from_explorer,
-    # so we watch requests.get which is only called inside Contract.from_explorer
-    mocker.spy(requests, "get")
-
-    network.connect("mainnet")
+def test_autofetch_missing(config, mock_explorer):
     config.settings["autofetch_sources"] = True
+    address = mock_explorer.add_unverified("0xff031750F29b24e6e5552382F6E0c065830085d2")
 
     with pytest.raises(ValueError):
-        Contract("0xff031750F29b24e6e5552382F6E0c065830085d2")
-    assert requests.get.call_count == 2
+        Contract(address)
+    assert mock_explorer.actions(address) == ["getsourcecode", "getabi"]
 
     with pytest.raises(ValueError):
-        Contract("0xff031750F29b24e6e5552382F6E0c065830085d2")
-    assert requests.get.call_count == 2
+        Contract(address)
+    assert mock_explorer.actions(address) == ["getsourcecode", "getabi"]
 
 
-def test_as_proxy_for(network):
-    proxy = "0xAfE212AEDf1c8dCd0E470d73B3B4035D32A75Efd"
-    impl = "0x098DCb095318A8B5321c5f2DB3fA04a55A780A20"
-    network.connect("ropsten")
+def test_as_proxy_for(mock_explorer, monkeypatch):
+    _mock_solc_versions(monkeypatch, "0.4.18")
+    proxy_address = "0x0000000000000000000000000000000000000112"
+    impl_address = "0x0000000000000000000000000000000000000113"
+    expected_proxy = brownie.network.contract._resolve_address(proxy_address)
+    mock_explorer.add_source(
+        impl_address,
+        name="DSToken",
+        abi=EXPLORER_ABI,
+        source=PRE_422_SOURCE,
+        compiler_version="v0.4.18",
+    )
+    mock_explorer.add_source(
+        proxy_address,
+        name="ProxyContract",
+        abi=[],
+        source=PROXY_SOURCE,
+        compiler_version="v0.4.18",
+        implementation=impl_address,
+    )
 
-    original = Contract.from_explorer(proxy)
-    proxy = Contract.from_explorer(proxy, as_proxy_for=impl)
-    implementation = Contract(impl)
+    with pytest.warns(BrownieCompilerWarning):
+        auto_proxy = Contract.from_explorer(proxy_address)
+    with pytest.warns(BrownieCompilerWarning):
+        explicit_proxy = Contract.from_explorer(proxy_address, as_proxy_for=impl_address)
+    implementation = Contract(impl_address)
 
-    assert original.abi == proxy.abi
-    assert original.address == proxy.address
-
-    assert proxy.abi == implementation.abi
-    assert proxy.address != implementation.address
+    assert auto_proxy.abi == explicit_proxy.abi == implementation.abi
+    assert hasattr(auto_proxy, "value")
+    assert hasattr(explicit_proxy, "value")
+    assert auto_proxy.address == explicit_proxy.address == expected_proxy
+    assert auto_proxy.address != implementation.address
+    assert mock_explorer.actions(proxy_address) == ["getsourcecode", "getsourcecode"]
+    assert mock_explorer.actions(impl_address) == ["getsourcecode", "getsourcecode"]
+    assert set(mock_explorer.actions()) == {"getsourcecode"}
 
 
 # @pytest.mark.parametrize(

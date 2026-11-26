@@ -34,3 +34,30 @@ def librarytester(devnetwork):
 def librarytester2(devnetwork):
     compiled = compile_source(source)
     return compiled
+
+
+class _FakeENS:
+    def __init__(self, records):
+        self.records = records
+
+    def address(self, domain):
+        result = self.records[domain]
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+
+@pytest.fixture
+def fake_ens(devnetwork, monkeypatch):
+    from brownie.network.web3 import ENS, _ens_cache, web3
+
+    original = dict(_ens_cache)
+    _ens_cache.clear()
+    monkeypatch.setattr(web3, "_mainnet_w3", object())
+
+    def apply(records):
+        monkeypatch.setattr(ENS, "fromWeb3", lambda _: _FakeENS(records))
+
+    yield apply
+    _ens_cache.clear()
+    _ens_cache.update(original)

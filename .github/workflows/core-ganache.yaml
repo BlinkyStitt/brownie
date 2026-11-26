@@ -3,9 +3,7 @@ on: ["push", "pull_request"]
 name: core (ganache)
 
 env:
-  ETHERSCAN_TOKEN: 9MKURTHE8FNA9NRUUJBHMUEVY6IQ5K1EGY
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  WEB3_INFURA_PROJECT_ID: 44c6300c5e5b4b2da5fc42b06bf18a8e
 
 concurrency:
   group: pr-ci-core-ganache.yaml-${{ github.event_name }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name != github.event.repository.default_branch && github.ref) || github.run_id }}

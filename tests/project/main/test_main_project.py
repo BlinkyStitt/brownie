@@ -132,7 +132,7 @@ def test_from_ethpm(ipfs_mock, project):
     assert not len(p.Math)
 
 
-def test_from_ethpm_with_deployments(ipfs_mock, project, network):
+def test_from_ethpm_with_deployments(ipfs_mock, project, network, rpc_networks):
     network.connect("mainnet")
     p = project.from_ethpm("ipfs://testipfs-math")
     assert len(p.Math) == 1

@@ -8,31 +8,36 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 if os.environ.get("BROWNIE_LIB", "0") == "1":
-    if sys.platform == "windows":
+    if sys.platform == "win32":
         requirements_filename = "requirements-windows.in"
     else:
         requirements_filename = "requirements.in"
 else:
-    if sys.platform == "windows":
+    if sys.platform == "win32":
         requirements_filename = "requirements-windows.txt"
     else:
         requirements_filename = "requirements.txt"
 
-requirements = []
-with open("requirements.in", "r") as f:
-    for r in f.readlines():
-        r = r.strip()
 
-        if r.startswith("#"):
-            continue
+def read_requirements(filename):
+    requirements = []
+    with open(filename, "r") as f:
+        for line in f:
+            requirement = line.strip()
+            if not requirement or requirement.startswith("#"):
+                continue
+            if requirement.startswith("-r "):
+                requirements.extend(read_requirements(requirement[3:].strip()))
+                continue
+            if "#egg=" in requirement:
+                requirement = requirement.split("#egg=", 1)[1]
+            elif requirement.startswith("-e"):
+                continue
+            requirements.append(requirement)
+    return requirements
 
-        if "#egg=" in r:
-            _, r = r.split("#egg=")
-        elif r.startswith("-e"):
-            # TODO: dont just skip this. grab the package name from the path
-            continue
 
-        requirements.append(r)
+requirements = read_requirements(requirements_filename)
 
 setup(
     name="eth-brownie",

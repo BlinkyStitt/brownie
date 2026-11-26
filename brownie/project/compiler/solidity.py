@@ -471,6 +471,10 @@ def _generate_coverage_data(
     while opcodes[0] not in ("INVALID", "STOP") and pc < instruction_count:
         # necessary because sometimes solidity returns an incomplete source map
         pc_list.append({"op": opcodes.popleft(), "pc": pc})
+        if pc_list[-1]["op"] == "REVERT":
+            _find_revert_offset(
+                pc_list, source_map, active_source_node, active_fn_node, active_fn_name
+            )
         pc += 1
         if pc_list[-1]["op"].startswith("PUSH") and opcodes[0][:2] == "0x":
             pc_list[-1]["value"] = opcodes.popleft()
