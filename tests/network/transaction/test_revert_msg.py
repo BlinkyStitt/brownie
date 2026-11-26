@@ -2,6 +2,7 @@
 
 import pytest
 
+import brownie.project.build
 from brownie.exceptions import VirtualMachineError
 from brownie.project import compile_source
 
@@ -187,6 +188,13 @@ def test_solidity_invalid_opcodes(evmtester):
     with pytest.raises(VirtualMachineError) as exc:
         evmtester.modulusByZero(2, 0)
     assert exc.value.revert_msg in ("Division or modulo by zero", "Modulus by zero")
+
+
+def test_invalid_opcode_without_cached_location(evmtester, monkeypatch):
+    monkeypatch.setattr(brownie.project.build, "_revert_map", {})
+    with pytest.raises(VirtualMachineError) as exc:
+        evmtester.invalidOpcodes(2, 0)
+    assert exc.value.revert_msg in ("Division or modulo by zero", "Division by zero")
 
 
 def test_vyper_revert_reasons(vypertester, console_mode):

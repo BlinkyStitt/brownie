@@ -38,7 +38,8 @@ def test_kill(attachable_rpc, temp_port):
     attachable_rpc.kill(False)
 
 
-def test_no_port(rpc):
+def test_no_port(rpc, monkeypatch):
+    monkeypatch.setattr(rpc, "process", None)
     with pytest.raises(ValueError):
         rpc.attach("http://127.0.0.1")
 

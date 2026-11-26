@@ -105,7 +105,8 @@ def set_solc_version(version: Union[str, Version]) -> str:
 def install_solc(*versions: Union[Version, str]) -> None:
     """Installs solc versions."""
     for version in versions:
-        solcx.install_solc(version, show_progress=True)
+        # The legacy progress downloader repeatedly copies the entire binary buffer.
+        solcx.install_solc(version, show_progress=False)
 
 
 def get_abi(contract_source: str, allow_paths: Optional[str] = None) -> Dict:
@@ -381,11 +382,14 @@ def _generate_coverage_data(
             pc += int(pc_list[-1]["op"][4:])
 
         # for REVERT opcodes without an source offset, try to infer one
-        if source[2] == -1 or source == first_source:
+        if source[2] == -1 or source[:3] == first_source[:3]:
             if pc_list[-1]["op"] == "REVERT":
                 _find_revert_offset(
                     pc_list, source_map, active_source_node, active_fn_node, active_fn_name
                 )
+                if "offset" in pc_list[-1]:
+                    # Keep the inferred location instead of the contract-wide placeholder.
+                    continue
             if source[2] == -1:
                 continue
 
