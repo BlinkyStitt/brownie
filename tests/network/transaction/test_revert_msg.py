@@ -18,6 +18,7 @@ REVERT_FUNCTIONS_NO_INPUT = [
     }}""",
 ]
 
+# Distinct guard reasons prevent optimized compilers from merging both failure paths.
 REVERT_FUNCTIONS_INPUT = [
     """
     function foo (uint a) external returns (bool) {{
@@ -28,12 +29,12 @@ REVERT_FUNCTIONS_INPUT = [
     }}""",
     """
     function foo (uint a) external returns (bool) {{
-        require(a >= 3);
+        require(a >= 3, "below three");
         {}; // dev: yuss
     }}""",
     """
     function foo (uint a) external {{
-        require(a >= 3);
+        require(a >= 3, "below three");
         {}; // dev: yuss
     }}""",
 ]

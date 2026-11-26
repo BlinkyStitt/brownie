@@ -387,8 +387,15 @@ def _generate_coverage_data(
                 _find_revert_offset(
                     pc_list, source_map, active_source_node, active_fn_node, active_fn_name
                 )
-                if "offset" in pc_list[-1]:
-                    # Keep the inferred location instead of the contract-wide placeholder.
+                empty_revert = (
+                    len(pc_list) > 2
+                    and pc_list[-2]["op"] == "DUP1"
+                    and (
+                        pc_list[-3]["op"] == "PUSH0" or int(pc_list[-3].get("value", "-1"), 16) == 0
+                    )
+                )
+                if "offset" in pc_list[-1] and (source[2] == -1 or empty_revert):
+                    # Preserve empty-revert locations, but do not label shared panic payloads.
                     continue
             if source[2] == -1:
                 continue
