@@ -191,7 +191,7 @@ class TransactionReceipt:
 
         # avoid querying the trace to get the revert string if possible
         self._revert_msg, self._revert_pc, revert_type = revert_data or (None, None, None)
-        if self._revert_msg is None and revert_type not in ("revert", "invalid_opcode"):
+        if self._revert_msg is None and revert_type not in ("revert", "invalid opcode"):
             self._revert_msg = revert_type
         if self._revert_pc is not None:
             self._dev_revert_msg = build._get_dev_revert(self._revert_pc) or None
@@ -709,7 +709,7 @@ class TransactionReceipt:
                     try:
                         self._revert_msg = decode_abi(["string"], data[4:])[0]
                     except Exception:
-                        # print this one as bytes instead of hex because it probably has a string in it
+                        # Print bytes so the message can include readable text.
                         self._revert_msg = f"unparsed string error: {data[4:]}"
                 else:
                     # TODO: actually parse the data

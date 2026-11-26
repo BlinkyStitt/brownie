@@ -1160,7 +1160,8 @@ class Contract(_DeployedContractBase):
                 is_compilable = False
         else:
             try:
-                version = Version(compiler_str.lstrip("v")).truncate()
+                parsed = Version(compiler_str.lstrip("v"))
+                version = Version(major=parsed.major, minor=parsed.minor, patch=parsed.patch)
                 is_compilable = (
                     version >= Version("0.4.22")
                     and version
@@ -1875,9 +1876,13 @@ def _fetch_from_explorer(address: str, action: str, silent: bool) -> Dict:
         address = _resolve_address(code[30:70])
 
     params: Dict = {"module": "contract", "action": action, "address": address}
+    hostname = (urlparse(url).hostname or "").lower()
+    if hostname == "etherscan.io" or hostname.endswith(".etherscan.io"):
+        url = "https://api.etherscan.io/v2/api"
+        params["chainid"] = str(CONFIG.active_network["chainid"])
     if "etherscan" in url:
         if os.getenv("ETHERSCAN_TOKEN"):
-            params["apiKey"] = os.getenv("ETHERSCAN_TOKEN")
+            params["apikey"] = os.getenv("ETHERSCAN_TOKEN")
         elif not silent:
             warnings.warn(
                 "No Etherscan API token set. You may experience issues with rate limiting. "

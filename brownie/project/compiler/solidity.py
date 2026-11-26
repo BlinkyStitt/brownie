@@ -17,6 +17,9 @@ from brownie.project.compiler.utils import _get_alias, expand_source_map
 
 from . import sources
 
+# py-solc-x 1.x still points to the retired solc-bin.ethereum.org host.
+solcx.install.BINARY_DOWNLOAD_BASE = "https://binaries.soliditylang.org/{}-amd64/{}"
+
 solcx_logger = logging.getLogger("solcx")
 solcx_logger.setLevel(10)
 sh = logging.StreamHandler()
@@ -41,8 +44,8 @@ SOLIDITY_ERROR_CODES = {
 }
 
 
-def get_version() -> Version:
-    return solcx.get_solc_version(with_commit_hash=True)
+def get_version(with_commit_hash: bool = True) -> Version:
+    return solcx.get_solc_version(with_commit_hash=with_commit_hash)
 
 
 def compile_from_input_json(
@@ -102,7 +105,8 @@ def set_solc_version(version: Union[str, Version]) -> str:
 def install_solc(*versions: Union[Version, str]) -> None:
     """Installs solc versions."""
     for version in versions:
-        solcx.install_solc(version, show_progress=True)
+        # The legacy progress downloader repeatedly copies the entire binary buffer.
+        solcx.install_solc(version, show_progress=False)
 
 
 def get_abi(contract_source: str, allow_paths: Optional[str] = None) -> Dict:
@@ -378,11 +382,21 @@ def _generate_coverage_data(
             pc += int(pc_list[-1]["op"][4:])
 
         # for REVERT opcodes without an source offset, try to infer one
-        if source[2] == -1 or source == first_source:
+        if source[2] == -1 or source[:3] == first_source[:3]:
             if pc_list[-1]["op"] == "REVERT":
                 _find_revert_offset(
                     pc_list, source_map, active_source_node, active_fn_node, active_fn_name
                 )
+                empty_revert = (
+                    len(pc_list) > 2
+                    and pc_list[-2]["op"] == "DUP1"
+                    and (
+                        pc_list[-3]["op"] == "PUSH0" or int(pc_list[-3].get("value", "-1"), 16) == 0
+                    )
+                )
+                if "offset" in pc_list[-1] and (source[2] == -1 or empty_revert):
+                    # Preserve empty-revert locations, but do not label shared panic payloads.
+                    continue
             if source[2] == -1:
                 continue
 
@@ -468,6 +482,10 @@ def _generate_coverage_data(
     while opcodes[0] not in ("INVALID", "STOP") and pc < instruction_count:
         # necessary because sometimes solidity returns an incomplete source map
         pc_list.append({"op": opcodes.popleft(), "pc": pc})
+        if pc_list[-1]["op"] == "REVERT":
+            _find_revert_offset(
+                pc_list, source_map, active_source_node, active_fn_node, active_fn_name
+            )
         pc += 1
         if pc_list[-1]["op"].startswith("PUSH") and opcodes[0][:2] == "0x":
             pc_list[-1]["value"] = opcodes.popleft()

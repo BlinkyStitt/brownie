@@ -2,6 +2,7 @@
 
 import pytest
 
+import brownie.project.build
 from brownie.exceptions import VirtualMachineError
 from brownie.project import compile_source
 
@@ -17,6 +18,7 @@ REVERT_FUNCTIONS_NO_INPUT = [
     }}""",
 ]
 
+# Distinct guard reasons prevent optimized compilers from merging both failure paths.
 REVERT_FUNCTIONS_INPUT = [
     """
     function foo (uint a) external returns (bool) {{
@@ -27,15 +29,26 @@ REVERT_FUNCTIONS_INPUT = [
     }}""",
     """
     function foo (uint a) external returns (bool) {{
-        require(a >= 3);
+        require(a >= 3, "below three");
         {}; // dev: yuss
     }}""",
     """
     function foo (uint a) external {{
-        require(a >= 3);
+        require(a >= 3, "below three");
         {}; // dev: yuss
     }}""",
 ]
+
+
+def _compile_for_evm(source, evmtester):
+    settings = evmtester._build["compiler"]
+    return compile_source(
+        source,
+        solc_version=settings["version"].split("+")[0],
+        evm_version=settings["evm_version"],
+        optimize=settings["optimizer"]["enabled"],
+        runs=settings["optimizer"]["runs"],
+    )
 
 
 @pytest.mark.parametrize("expr", ["revert()", "require(false)"])
@@ -50,7 +63,7 @@ contract Foo {{
 }}
     """
 
-    contract = compile_source(code).Foo.deploy({"from": accounts[0]})
+    contract = _compile_for_evm(code, evmtester).Foo.deploy({"from": accounts[0]})
     tx = contract.foo()
     assert tx.revert_msg == "dev: yuss"
     assert tx.dev_revert_msg == "dev: yuss"
@@ -68,7 +81,7 @@ contract Foo {{
 }}
     """
 
-    contract = compile_source(code).Foo.deploy({"from": accounts[0]})
+    contract = _compile_for_evm(code, evmtester).Foo.deploy({"from": accounts[0]})
     tx = contract.foo()
     assert tx.revert_msg == "foo"
     assert tx.dev_revert_msg == "dev: yuss"
@@ -86,7 +99,7 @@ contract Foo {{
 }}
     """
 
-    contract = compile_source(code).Foo.deploy({"from": accounts[0]})
+    contract = _compile_for_evm(code, evmtester).Foo.deploy({"from": accounts[0]})
     tx = contract.foo(4)
     assert tx.revert_msg == "dev: yuss"
 
@@ -103,7 +116,7 @@ contract Foo {{
 }}
     """
 
-    contract = compile_source(code).Foo.deploy({"from": accounts[0]})
+    contract = _compile_for_evm(code, evmtester).Foo.deploy({"from": accounts[0]})
     tx = contract.foo(4)
     assert tx.revert_msg == "foo"
     assert tx.dev_revert_msg == "dev: yuss"
@@ -176,6 +189,13 @@ def test_solidity_invalid_opcodes(evmtester):
     with pytest.raises(VirtualMachineError) as exc:
         evmtester.modulusByZero(2, 0)
     assert exc.value.revert_msg in ("Division or modulo by zero", "Modulus by zero")
+
+
+def test_invalid_opcode_without_cached_location(evmtester, monkeypatch):
+    monkeypatch.setattr(brownie.project.build, "_revert_map", {})
+    with pytest.raises(VirtualMachineError) as exc:
+        evmtester.invalidOpcodes(2, 0)
+    assert exc.value.revert_msg in ("Division or modulo by zero", "Division by zero")
 
 
 def test_vyper_revert_reasons(vypertester, console_mode):

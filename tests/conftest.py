@@ -8,6 +8,7 @@ import sys
 from copy import deepcopy
 from pathlib import Path
 from typing import Dict, List
+from urllib.parse import urlparse
 
 import pytest
 import solcx
@@ -16,6 +17,7 @@ from ethpm._utils.ipfs import dummy_ipfs_pin
 from ethpm.backends.ipfs import BaseIPFSBackend
 from prompt_toolkit.input.defaults import create_pipe_input
 from semantic_version import Version
+from web3 import HTTPProvider
 
 import brownie
 from brownie._cli.console import Console
@@ -225,8 +227,13 @@ def evmtester(_project_factory, project, tmp_path, accounts, request):
         tmp_path.joinpath("contracts/EVMTester.sol"),
     )
     conf_json = {
-        "evm_version": evm_version,
-        "compiler": {"solc": {"version": str(solc_version), "optimize": runs > 0, "runs": runs}},
+        "compiler": {
+            "evm_version": evm_version,
+            "solc": {
+                "version": str(solc_version),
+                "optimizer": {"enabled": runs > 0, "runs": runs},
+            },
+        },
     }
     with tmp_path.joinpath("brownie-config.yaml").open("w") as fp:
         json.dump(conf_json, fp)
@@ -239,6 +246,7 @@ def plugintesterbase(project, testdir, monkeypatch, network_name):
     brownie.test.coverage.clear()
     brownie.network.connect(network_name)
     monkeypatch.setattr("brownie.network.connect", lambda k: None)
+    monkeypatch.setenv("PYTEST_ADDOPTS", os.environ.get("PYTEST_ADDOPTS", "") + " -p no:typeguard")
     testdir.plugins.extend(["pytest-brownie", "pytest-cov"])
     yield testdir
     brownie.network.disconnect()
@@ -460,3 +468,94 @@ def console():
     sys.argv = ["brownie", "console"]
     yield Console
     sys.argv = argv
+
+
+@pytest.fixture
+def rpc_networks(config, monkeypatch):
+    """Serve explicit read-only RPC responses without retired public services."""
+    records = json.loads((Path(__file__).parent / "data/rpc/ganache.json").read_text())
+    networks = {
+        "mainnet": (1, "d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3"),
+        "ropsten": (3, "41941023680923e0fe4d74a34bdac8141f2540e3ae90623718e47d66d1ca4a2d"),
+        "rinkeby": (4, "6341fd3daf94b748c72ced5a5b26028f2474f5f00c4f7b65a9a7f8a40b1c0c22"),
+        "kovan": (42, "a3c565fc15c7478862d50ccd6561e3c06b24cc509bf388941c25ea985ce32cb9"),
+        "etc": (61, "d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3"),
+        "fixture": (1337, records["genesis"]["hash"][2:]),
+    }
+    for name, (chain_id, _) in networks.items():
+        if name not in config.networks:
+            config.networks[name] = {
+                "id": name,
+                "name": "Local JSON-RPC fixture",
+                "chainid": chain_id,
+            }
+        config.networks[name]["host"] = "https://rpc-fixture.invalid/" + name
+    monkeypatch.setattr(brownie.web3, "_mainnet_w3", None)
+    original = HTTPProvider.make_request
+    transactions = {r["transaction"]["hash"]: r for r in records["transactions"].values()}
+    code = {
+        "mainnet": {
+            "0xdac17f958d2ee523a2206206994597c13d831ec7",
+            "0xb8c77482e45f1f44de1745f52c74426c631bdd52",
+            "0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2",
+        },
+        "ropsten": {"0xbcd0a9167015ee213ba01daff79d60cd221b0cac"},
+    }
+
+    def make_request(provider, method, params):
+        uri = urlparse(provider.endpoint_uri)
+        if uri.hostname != "rpc-fixture.invalid":
+            return original(provider, method, params)
+        name = uri.path.lstrip("/")
+        chain_id, genesis = networks[name]
+        if method == "web3_clientVersion":
+            result = "Geth/Brownie-RPC-fixture"
+        elif method == "eth_chainId":
+            result = hex(chain_id)
+        elif method == "net_version":
+            result = str(chain_id)
+        elif method == "eth_blockNumber":
+            result = "0x2"
+        elif method == "eth_accounts":
+            result = []
+        elif method == "eth_getTransactionCount":
+            result = records["nonces"][params[0].lower()]
+        elif method in ("eth_getBlockByNumber", "eth_getBlockByHash"):
+            key = params[0]
+            candidates = [records["genesis"]] + [r["block"] for r in transactions.values()]
+            if key in ("latest", "pending"):
+                block = records["transactions"]["0"]["block"]
+            else:
+                block = next((b for b in candidates if key in (b["hash"], b["number"])), None)
+                assert block is not None, "Unexpected fixture block: " + str(key)
+            result = deepcopy(block)
+            if result["number"] == "0x0":
+                result["hash"] = "0x" + genesis
+            if name == "rinkeby":
+                result["extraData"] = "0x" + "00" * 97
+        elif method in ("eth_getTransactionByHash", "eth_getTransactionReceipt"):
+            row = transactions.get(params[0])
+            result = (
+                None
+                if row is None
+                else row["transaction" if method.endswith("ByHash") else "receipt"]
+            )
+        elif method == "eth_getCode":
+            result = "0x6000" if params[0].lower() in code.get(name, set()) else "0x"
+        elif method == "eth_getStorageAt":
+            result = "0x" + "00" * 32
+        elif method in ("debug_traceTransaction", "eth_newBlockFilter"):
+            return {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "error": {"code": -32601, "message": "Method unavailable"},
+            }
+        else:
+            raise AssertionError("Unexpected RPC fixture method: " + method)
+        return {"jsonrpc": "2.0", "id": 1, "result": deepcopy(result)}
+
+    monkeypatch.setattr(HTTPProvider, "make_request", make_request)
+    yield records
+    provider = brownie.web3.provider
+    if provider and "rpc-fixture.invalid" in str(getattr(provider, "endpoint_uri", "")):
+        brownie.network.disconnect(False)

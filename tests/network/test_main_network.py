@@ -21,7 +21,7 @@ def test_disconnect(devnetwork, rpc, web3):
         devnetwork.disconnect()
 
 
-def test_connect_ropsten(network):
+def test_connect_ropsten(network, rpc_networks):
     network.connect("ropsten")
     assert network.show_active() == "ropsten"
 
