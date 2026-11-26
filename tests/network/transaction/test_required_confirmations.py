@@ -70,10 +70,10 @@ def test_wait_for_confirmations(accounts, block_time_network):
 
 def test_pending_nonce(accounts, block_time_network):
     for _ in range(3):
-        accounts[0].transfer(accounts[1], "0.1 ether", required_confs=0, silent=True)
+        tx = accounts[0].transfer(accounts[1], "0.1 ether", required_confs=0, silent=True)
     assert accounts[0]._pending_nonce() == 3
     assert accounts[0].nonce < 3
-    time.sleep(3.5)
+    tx.wait(1)
     assert accounts[0].nonce == 3
 
 
